@@ -1,0 +1,84 @@
+#!/bin/bash
+
+resticVersion="0.17.0"
+resticprofileVersion="0.28.0"
+systemrescueVersion="11.02"
+backupEngine="resticprofile"
+
+restoreDir="/etc/restore"
+scriptPath="$(dirname "$(readlink -f "$0")")"
+configPath="$(dirname "$(readlink -f "${scriptPath}/config")")"
+systemrescueBaseDir="/var/backups/systemrescue-backup"
+systemrescueTempDir="/tmp/systemrescue-backup"
+
+
+if [[ -r "${configPath}/base.cfg" ]]; then
+    source "${configPath}/base.cfg"
+fi
+
+# Check Dependencies to run.
+command -v rsync &>/dev/null || exit 2
+command -v curl &>/dev/null || exit 2
+command -v tar &>/dev/null || exit 2
+command -v bunzip2 &>/dev/null || exit 2
+
+# Start the preparation for building the SystemRescueBackup disc image
+mkdir -p "${systemrescueTempDir}" || exit 1
+mkdir -p "${systemrescueBaseDir}" || exit 1
+
+if [[ "${backupEngine,,}" == "resticprofile" ]]; then
+    mkdir -p "${systemrescueTempDir}/restic-install" || exit 1
+    mkdir -p "${configPath}/sysrescue/build_into_srm/usr/local/bin"
+    #pushd "${systemrescueTempDir}/restic-install" &>/dev/null || exit 1
+
+    if [[ ! -f "${systemrescueBaseDir}/restic_${resticVersion}_linux_amd64" ]]; then
+        curl -C - -Lso "${systemrescueBaseDir}/restic_${resticVersion}_linux_amd64.bz2" "https://github.com/restic/restic/releases/download/v${resticVersion}/restic_${resticVersion}_linux_amd64.bz2"
+        bunzip2 -k "${systemrescueBaseDir}/restic_${resticVersion}_linux_amd64.bz2"
+        chmod 755 "${systemrescueBaseDir}/restic_${resticVersion}_linux_amd64"
+        chown root:root "${systemrescueBaseDir}/restic_${resticVersion}_linux_amd64"
+        mv "${systemrescueBaseDir}/restic_${resticVersion}_linux_amd64" "${configPath}/build_into_srm/usr/local/bin/restic"
+    fi
+    if [[ ! -f "${systemrescueBaseDir}/resticprofile_${resticprofileVersion}_linux_amd64.tar.gz" ]]; then
+        curl -C - -Lso "${systemrescueBaseDir}/resticprofile_${resticprofileVersion}_linux_amd64.tar.gz" "https://github.com/creativeprojects/resticprofile/releases/download/v${resticprofileVersion}/resticprofile_${resticprofileVersion}_linux_amd64.tar.gz"
+        mkdir -p "${systemrescueTempDir}/restic-install"
+        tar -xzf "resticprofile_${resticprofileVersion}_linux_amd64.tar.gz" -C "${systemrescueTempDir}/restic-install"
+        chmod 755 "${systemrescueTempDir}/restic-install/resticprofile"
+        chown root:root "${systemrescueTempDir}/restic-install/resticprofile"
+        mv "${systemrescueTempDir}/restic-install/resticprofile" "${configPath}/build_into_srm/usr/local/bin/resticprofile"
+        rm -rf "${systemrescueTempDir}/restic-install"
+    fi
+    #mkdir -p "${configPath}/sysrescue/build_into_srm/usr/local/bin"
+    #cp "restic_${resticVersion}_linux_amd64" "${configPath}/build_into_srm/usr/local/bin/restic"
+    #cp resticprofile "${configPath}/build_into_srm/usr/local/bin/resticprofile"
+    #popd &>/dev/null
+    #rm -rf "${systemrescueTempDir}/restic-install"
+elif [[ "${backupEngine,,}" == "borgmatic" ]]; then
+    : #FIXME
+fi
+
+mkdir -p "${configPath}/sysrescue/build_into_srm/etc/restore"
+mount --bind "${restoreDir}" "${configPath}/sysrescue/build_into_srm/etc/restore"
+if [[ "${backupEngine,,}" == "resticprofile" ]]; then
+    mkdir -p "${configPath}/sysrescue/build_into_srm/etc/resticprofile"
+    mount --bind "/etc/resticprofile" "${configPath}/sysrescue/build_into_srm/etc/resticprofile"
+elif [[ "${backupEngine,,}" == "borgmatic" ]]; then
+    mkdir -p "${configPath}/sysrescue/build_into_srm/etc/borgmatic"
+    mkdir -p "${configPath}/sysrescue/build_into_srm/etc/borgmatic.d"
+    mount --bind "/etc/borgmatic" "${configPath}/sysrescue/build_into_srm/etc/borgmatic"
+    mount --bind "/etc/borgmatic.d" "${configPath}/sysrescue/build_into_srm/etc/borgmatic.d"
+fi
+
+#rsync -avhHi "${restoreDir}" "${configPath}/sysrescue/build_into_srm/etc/restore"
+#rsync -avhHi "/etc/resticprofile" "${configPath}/sysrescue/build_into_srm/etc/resticprofile"
+
+curl -C - -Lso "${systemrescueBaseDir}/systemrescue-${systemrescueVersion}-amd64.iso" "https://sourceforge.net/projects/systemrescuecd/files/sysresccd-x86/${systemrescueVersion}/systemrescue-${systemrescueVersion}-amd64.iso/download"
+curl -C - -Lso "${systemrescueBaseDir}/systemrescue-customize" "https://gitlab.com/systemrescue/systemrescue-sources/-/raw/main/airootfs/usr/share/sysrescue/bin/sysrescue-customize?inline=false"
+chmod 755 "${systemrescueBaseDir}/systemrescue-customize"
+chown root:root "${systemrescueBaseDir}/systemrescue-customize"
+
+if [[ "${backupEngine,,}" == "resticprofile" ]]; then
+    umount "${configPath}/sysrescue/build_into_srm/etc/resticprofile"
+elif [[ "${backupEngine,,}" == "borgmatic" ]]; then
+    umount "${configPath}/sysrescue/build_into_srm/etc/borgmatic"
+    umount "${configPath}/sysrescue/build_into_srm/etc/borgmatic.d"
+fi
