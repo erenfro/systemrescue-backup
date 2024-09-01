@@ -1,0 +1,93 @@
+#!/bin/bash
+
+restoreDir=/etc/restore
+giteaDir="/var/backups/gitea"
+scriptDir="$(dirname "$0")"
+
+readConfig() {
+	if [[ -r "${scriptDir}/../config/gitea_backup.cfg" ]]; then
+        source "${scriptDir}/../config/gitea_backup.cfg"
+	fi
+
+}
+
+check() {
+    GITEA_CONFIG=${GITEA_CONFIG:-/etc/gitea/app.ini}
+    if [[ ! -r "$GITEA_CONFIG" ]]; then
+        echo "ERROR: Cannot read gitea app.ini in $GITEA_CONFIG"
+        return 4
+    fi
+
+    GITEA_USER=${GITEA_USER:-git}
+    GITEA_GROUP=${GITEA_GROUP:-git}
+    GITEA_HOME=${GITEA_HOME:-$(getent passwd ${GITEA_USER} | cut -f6 -d:)}
+    if [[ ! -d "$GITEA_HOME" ]]; then
+        echo "ERROR: Cannot find Gitea home directory"
+        return 5
+    fi
+
+    if [[ -n "$GITEA_BIN" ]]; then
+        if [[ -x "${GITEA_BIN}" ]]; then
+            echo "Found Gitea in $GITEA_BIN"
+        else
+            echo "FATAL: Cannot execute Gitea"
+            return 3
+        fi
+    else
+        if ! which gitea &>/dev/null; then
+            echo "Cannot find Gitea in PATH"
+            return 2
+        fi
+        if [[ -x "$(which gitea)" ]]; then
+            GITEA_BIN="$(which gitea)"
+            echo "Found Gitea in $GITEA_BIN"
+        else
+            echo "FATAL: Cannot execute Gitea"
+            return 3
+        fi
+    fi
+
+    if [[ -d "$giteaDir" ]]; then
+        echo "Cleaning out old Gitea backups..."
+        rm -f "$giteaDir"/* || return 1
+    else
+        mkdir -p "$giteaDir" | return 1
+        chgrp "$GITEA_GROUP" "$giteaDir" 
+        chmod g+wx "$giteaDir"
+    fi
+}
+
+runBackups() {
+    local backupDate
+    
+    backupDate=$(date +"%Y-%m-%d")
+    giteaHome=$(getent passwd git | cut -f6 -d:)
+    pushd "${giteaDir}" &>/dev/null
+    sudo -u "$GITEA_USER" "${GITEA_BIN}" dump --config "${GITEA_CONFIG}" --type tar.xz --file - > "${giteaDir}/gitea-dump-${backupDate}.tar.xz"
+    popd &>/dev/null
+}
+
+hook_before() {
+    check || exit $?
+    runBackups || exit $?
+}
+
+hook_after() {
+    :
+}
+
+hook_fail() {
+    :
+}
+
+hook_final() {
+    :
+}
+
+
+case "$1" in
+    before)     hook_before     || exit $?;;
+    after)      hook_after      || exit $?;;
+    fail)       hook_fail       || exit $?;;
+    finally)    hook_final      || exit $?;;
+esac

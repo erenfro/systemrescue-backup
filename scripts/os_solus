@@ -1,0 +1,31 @@
+#!/bin/bash
+
+restoreDir="/etc/restore"
+
+hook_before() {
+    mkdir -p "$restoreDir" || exit 1
+    pushd "$restoreDir" || exit 2
+
+    eopkg li > Packages.list
+
+    popd || exit 2
+}
+
+hook_after() {
+    :
+}
+
+hook_fail() {
+    :
+}
+
+hook_final() {
+    :
+}
+
+case "$1" in
+    before)     hook_before     || exit $?;;
+    after)      hook_after      || exit $?;;
+    fail)       hook_fail       || exit $?;;
+    finally)    hook_final      || exit $?;;
+esac

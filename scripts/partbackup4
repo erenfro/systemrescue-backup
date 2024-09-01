@@ -1,0 +1,388 @@
+#!/bin/bash
+
+# Global variables for restore directory
+restoreDir="/etc/restore"
+backupDir="${restoreDir}/data"
+
+# Internal Variables used globally
+declare -a exclude_opts
+declare -A rename_map
+declare restore_uuid=true
+
+# Function to create backup directory
+create_backup_dir() {
+    echo "Creating backup directory at ${backupDir}..."
+    mkdir -p "$backupDir"
+    echo "Backup directory created."
+}
+
+# Function to backup a partition table
+backup_partition() {
+    local device="$1"
+
+    echo "Backing up partition table for $device..."
+    sfdisk --dump "$device" > "${backupDir}/partition_table_$(basename "$device").backup"
+    echo "Partition table backed up to ${backupDir}/partition_table_$(basename "$device").backup"
+}
+
+# Function to backup filesystem UUID
+backup_uuid() {
+    local partition="$1"
+
+    echo "Backing up UUID for $partition..."
+    blkid "$partition" | awk '{print $2}' > "${backupDir}/uuid_$(basename "$partition").backup"
+    echo "UUID backed up to ${backupDir}/uuid_$(basename "$partition").backup"
+}
+
+# Function to backup Btrfs subvolumes, excluding snapshots and nested subvolumes
+backup_btrfs_subvolumes() {
+    local mount_point="$1"
+    local subvol_path
+    local subvol_name
+
+    echo "Backing up Btrfs subvolumes from $mount_point to ${backupDir}..."
+    mkdir -p "${backupDir}/btrfs_subvolumes"
+    btrfs subvolume list -p "$mount_point" | while read -r line; do
+        subvol_path=$(echo "$line" | awk '{print $NF}')
+        subvol_name=$(basename "$subvol_path")
+
+        # Skip snapshots and subvolumes under .snapshots
+        if [[ "$subvol_path" == *.snapshots/* || "$subvol_path" == ".snapshots" ]]; then
+            continue
+        fi
+
+        echo "Backing up subvolume $subvol_name"
+        btrfs subvolume snapshot "$mount_point/$subvol_path" "${backupDir}/btrfs_subvolumes/$subvol_name"
+    done
+    echo "Btrfs subvolumes backed up to ${backupDir}/btrfs_subvolumes"
+}
+
+# Function to backup current mount points and options
+backup_mount_points() {
+    local line
+    local device
+
+    echo "Backing up current mount points and options..."
+    while IFS= read -r line; do
+        device=$(echo "$line" | awk '{print $1}')
+        # Skip excluded devices
+        if is_excluded "$device"; then
+            echo "Skipping excluded device $device"
+            continue
+        fi
+        backup_partition "$device"
+        backup_uuid "$device"
+    done < <(mount | grep "^/dev")
+    #mount | grep "^/dev" > "${backupDir}/mount_points.backup"
+    echo "Mount points backed up to ${backupDir}/mount_points.backup"
+}
+
+# Function to restore Btrfs subvolumes to /mnt/restore, excluding snapshots and nested subvolumes
+restore_btrfs_subvolumes() {
+    local mount_point="$1"
+    local subvol_snapshot
+    local subvol_name
+
+    echo "Restoring Btrfs subvolumes from ${backupDir}/btrfs_subvolumes to /mnt/restore/$mount_point..."
+    mkdir -p "/mnt/restore$mount_point"
+    for subvol_snapshot in "${backupDir}/btrfs_subvolumes"/*; do
+        if [[ -d "$subvol_snapshot" ]]; then
+            subvol_name=$(basename "$subvol_snapshot")
+
+            # Restore subvolume to the mount point
+            echo "Restoring subvolume $subvol_name"
+            btrfs subvolume snapshot "$subvol_snapshot" "/mnt/restore$mount_point/$subvol_name"
+        fi
+    done
+    echo "Btrfs subvolumes restored to /mnt/restore$mount_point"
+}
+
+# Function to restore mount points to /mnt/restore, supporting Btrfs subvolumes
+restore_mount_points() {
+    local original_device
+    local device
+    local mount_point
+    local mount_opts
+    local subvol
+    local fs_type
+
+    if [[ -f "${backupDir}/mount_points.backup" ]]; then
+        echo "Restoring mount points from ${backupDir}/mount_points.backup to /mnt/restore..."
+        mkdir -p /mnt/restore
+        while IFS= read -r line; do
+            original_device=$(echo "$line" | awk '{print $1}')
+            mount_point=$(echo "$line" | awk '{print $3}')
+            mount_opts=$(echo "$line" | awk -F' ' '{for(i=4;i<=NF;i++){print $i}}' | tr -d '()')
+
+            # Extract and remove subvol and subvolid from mount options
+            subvol=$(echo "$mount_opts" | grep -oP 'subvol=\K[^,]*')
+            mount_opts=$(echo "$mount_opts" | sed -e 's/subvol=[^,]*,//g' -e 's/subvolid=[^,]*,//g')
+
+            # Rename device if specified
+            device="$original_device"
+            if [[ -n "${rename_map[$device]}" ]]; then
+                device="${rename_map[$device]}"
+            fi
+
+            mkdir -p "/mnt/restore$mount_point"
+            fs_type=$(blkid -o value -s TYPE "$device")
+
+            if [[ "$fs_type" == "btrfs" ]]; then
+                if [[ -n "$subvol" ]]; then
+                    echo "Mounting Btrfs subvolume $subvol on /mnt/restore$mount_point"
+                    mount -t btrfs -o subvol="$subvol,$mount_opts" "$device" "/mnt/restore$mount_point"
+                else
+                    echo "Mounting Btrfs volume $device on /mnt/restore$mount_point"
+                    mount -t btrfs -o "$mount_opts" "$device" "/mnt/restore$mount_point"
+                fi
+            else
+                echo "Mounting $device on /mnt/restore$mount_point with options $mount_opts"
+                mount -o "$mount_opts" "$device" "/mnt/restore$mount_point"
+            fi
+        done < "${backupDir}/mount_points.backup"
+        echo "Mount points restored to /mnt/restore."
+    else
+        echo "Backup file ${backupDir}/mount_points.backup not found."
+        return 1
+    fi
+}
+
+# Function to restore a partition table with optional device renaming
+restore_partition() {
+    local device="$1"
+    local original_device="$device"
+    local backup_file
+    local temp_file
+
+    # Check if the device should be renamed
+    if [[ -n "${rename_map[$device]}" ]]; then
+        echo "Renaming device $device to ${rename_map[$device]}"
+        device="${rename_map[$device]}"
+    fi
+
+    backup_file="${backupDir}/partition_table_$(basename "$original_device").backup"
+    if [[ ! -f "$backup_file" ]]; then
+        echo "Backup file $backup_file not found."
+        return 1
+    fi
+
+    # Create a temporary file for the modified backup
+    temp_file=$(mktemp)
+    trap 'rm -f "$temp_file"' EXIT
+
+    # Modify the backup file to use the new device name
+    sed "s|$original_device|$device|g" "$backup_file" > "$temp_file"
+
+    echo "Restoring partition table for $device..."
+    sfdisk "$device" < "$temp_file"
+    echo "Partition table restored from $temp_file"
+}
+
+# Function to restore filesystem UUID with optional device renaming
+restore_uuid() {
+    local partition="$1"
+    local original_partition="$partition"
+    local uuid
+
+    # Check if the partition should be renamed
+    if [[ -n "${rename_map[$partition]}" ]]; then
+        partition="${rename_map[$partition]}"
+    fi
+
+    if [[ -f "${backupDir}/uuid_$(basename "$original_partition").backup" ]]; then
+        uuid=$(cut -d'=' -f2 < "${backupDir}/uuid_$(basename "$original_partition").backup" | tr -d '"')
+        echo "Restoring UUID $uuid to $partition..."
+        
+        case "$(blkid -o value -s TYPE "$partition")" in
+            ext4)
+                tune2fs -U "$uuid" "$partition"
+                ;;
+            xfs)
+                xfs_admin -U "$uuid" "$partition"
+                ;;
+            btrfs)
+                btrfstune -u "$uuid" "$partition"
+                ;;
+            *)
+                echo "Unsupported filesystem type."
+                return 1
+                ;;
+        esac
+
+        echo "UUID restored."
+    else
+        echo "Backup file ${backupDir}/uuid_$(basename "$original_partition").backup not found."
+        return 1
+    fi
+}
+
+# Function to handle exclusion list with wildcard and reverse matching
+is_excluded() {
+    local pattern="$1"
+    local device="$2"
+
+    for exclude in "${exclude_opts[@]}"; do
+        if [[ "$exclude" == !* ]]; then
+            pattern="${exclude#!}"
+            if [[ "$device" == $pattern ]]; then
+                return 1
+            fi
+        else
+            pattern="$exclude"
+            if [[ "$device" == $pattern ]]; then
+                return 0
+            fi
+        fi
+    done
+
+    return 1
+}
+
+
+# Function to handle all backup operations
+backup_all_partitions() {
+    local device
+    local mount_point
+    local fs_type
+
+    echo "Backing up all partitions..."
+    backup_mount_points
+
+    while IFS= read -r line; do
+        local device
+        device=$(echo "$line" | awk '{print $1}')
+        mount_point=$(echo "$line" | awk '{print $3}')
+        fs_type=$(echo "$line" | awk '{print $5}')
+        # Skip excluded devices
+        if is_excluded "$device"; then
+            echo "Skipping excluded device $device"
+            continue
+        fi
+        backup_partition "$device"
+        backup_uuid "$device"
+    done < "${backupDir}/mount_points.backup"
+
+    backup_btrfs_subvolumes "/mnt"
+}
+
+# Function to restore all partitions and filesystems from backup files
+restore_all() {
+    echo "Restoring all partitions and filesystems from backup..."
+
+    # Restore partition tables
+    while IFS= read -r line; do
+        local device
+        device=$(echo "$line" | awk '{print $1}')
+        # Rename device if specified
+        if [[ -n "${rename_map[$device]}" ]]; then
+            device="${rename_map[$device]}"
+        fi
+        restore_partition "$device"
+    done < "${backupDir}/mount_points.backup"
+
+    if [[ "$restore_uuid" == true ]]; then
+        while IFS= read -r line; do
+            local partition
+            partition=$(echo "$line" | awk '{print $1}')
+            # Rename partition if specified
+            if [[ -n "${rename_map[$partition]}" ]]; then
+                partition="${rename_map[$partition]}"
+            fi
+            restore_uuid "$partition"
+        done < "${backupDir}/mount_points.backup"
+    fi
+
+    restore_btrfs_subvolumes "/mnt/restore"
+}
+
+# Main function to handle command-line arguments and invoke appropriate functions
+main() {
+    local exclude_file
+
+    case "$1" in
+        backup)
+            shift
+            while [[ "$#" -gt 0 ]]; do
+                case "$1" in
+                    --exclude)
+                        shift
+                        exclude_opts+=("$1")
+                        shift
+                        ;;
+                    --exclude-file)
+                        shift
+                        exclude_file="$1"
+                        if [[ -f "$exclude_file" ]]; then
+                            while IFS= read -r line; do
+                                exclude_opts+=("$line")
+                            done < "$exclude_file"
+                        else
+                            echo "Exclude file $exclude_file does not exist."
+                            exit 1
+                        fi
+                        shift
+                        ;;
+                    *)
+                        echo "Usage: $0 backup [--exclude <pattern>]... [--exclude-file <file>]"
+                        exit 1
+                        ;;
+                esac
+            done
+
+            create_backup_dir
+            backup_all_partitions
+            ;;
+
+        restore)
+            shift
+            while [[ "$#" -gt 0 ]]; do
+                case "$1" in
+                    --no-uuid)
+                        restore_uuid=false
+                        shift
+                        ;;
+                    --exclude)
+                        shift
+                        exclude_opts+=("$1")
+                        shift
+                        ;;
+                    --exclude-file)
+                        shift
+                        exclude_file="$1"
+                        if [[ -f "$exclude_file" ]]; then
+                            while IFS= read -r line; do
+                                exclude_opts+=("$line")
+                            done < "$exclude_file"
+                        else
+                            echo "Exclude file $exclude_file does not exist."
+                            exit 1
+                        fi
+                        shift
+                        ;;
+                    --rename)
+                        shift
+                        local old_device="$1"
+                        shift
+                        local new_device="$1"
+                        rename_map["$old_device"]="$new_device"
+                        shift
+                        ;;
+                    *)
+                        echo "Usage: $0 restore [--no-uuid] [--exclude <pattern>]... [--exclude-file <file>] [--rename <old_device> <new_device>]"
+                        exit 1
+                        ;;
+                esac
+            done
+
+            restore_all
+            ;;
+
+        *)
+            echo "Usage: $0 {backup|restore} [options]"
+            exit 1
+            ;;
+    esac
+}
+
+# Call the main function with all arguments
+main "$@"

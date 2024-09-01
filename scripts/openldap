@@ -1,0 +1,74 @@
+#!/bin/bash
+
+restoreDir=/etc/restore
+ldapDir="$restoreDir/openldap"
+
+hook_before() {
+    if [[ -d "$ldapDir" ]]; then
+        rm -rf "$ldapDir" || exit 1
+    fi
+    mkdir -p "$ldapDir" || exit 1
+    pushd "$restoreDir" || exit 2
+
+    slapcat -n 0 -l "$ldapDir/config.ldif"
+    slapcat -n 1 -l "$ldapDir/data.ldif"
+
+    cat > ldaprestore.sh <<EOF
+#!/bin/bash
+
+if [[ ! -d openldap ]]; then
+    echo "This needs to be run in the restore directory."
+    exit 1
+fi
+if [[ ! -f openldap/config.ldif ]]; then
+    echo "This needs to be run in the restore directory."
+    exit 1
+fi
+
+currDate="\$(date '+%Y-%m-%d')"
+
+systemctl stop slapd
+sleep 5
+pkill slapd
+
+if [[ -d /etc/ldap/slapd.d ]]; then
+    mv /etc/ldap/slapd.d "/etc/ldap/slapd.d.\$currDate"
+    mkdir -p /etc/ldap/slapd.d
+    slapadd -n 0 -F /etc/ldap/slapd.d -l openldap/config.ldif
+    chown -R ldap:ldap /etc/ldap/slapd.d
+fi
+
+if [[ -d /var/lib/ldab ]]; then
+    mv /var/lib/ldap "/var/lib/ldap.\$currDate"
+    mkdir -p /var/lib/ldap
+
+    if [[ -d /etc/ldap/slapd.d ]]; then
+        slapadd -n 1 -F /etc/ldap/slapd.d -l openldap/data.ldif -w
+    fi
+    chown -R ldap:ldap /var/lib/ldap
+fi
+
+echo "Backups have been restored. If you see no errors above, then you can start your server back up."
+EOF
+
+    popd || exit 2
+}
+
+hook_after() {
+    rm -rf "$ldapDir" || exit 1
+}
+
+hook_fail() {
+    :
+}
+
+hook_final() {
+    :
+}
+
+case "$1" in
+    before)     hook_before     || exit $?;;
+    after)      hook_after      || exit $?;;
+    fail)       hook_fail       || exit $?;;
+    finally)    hook_final      || exit $?;;
+esac

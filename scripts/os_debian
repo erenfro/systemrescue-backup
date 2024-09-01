@@ -1,0 +1,150 @@
+#!/bin/bash
+
+restoreDir="/etc/restore"
+
+function is_bin_in_path {
+    builtin type -P "$1" &>/dev/null
+}
+
+hook_before() {
+    if ! is_bin_in_path rsync; then
+      echo "rsync needs to be installed for backups to work properly."
+      exit 1
+    fi
+
+    mkdir -p "$restoreDir" || exit 1
+    pushd "$restoreDir" || exit 2
+
+    dpkg --get-selections | sort > Package.list
+    apt-mark showmanual | sort > InstallOnly.list
+    cp -a /etc/apt/sources.list "$restoreDir/"
+    rsync -avhHi /etc/apt/sources.list.d "$restoreDir/"
+    rsync -avhHi /etc/apt/trusted.gpg.d "$restoreDir/"
+    [[ -d /etc/apt/keyrings ]] && rsync -avhHi /etc/apt/keyrings "$restoreDir/"
+
+    cat > restore.sh <<EOF
+#!/bin/bash
+
+if [[ ! -f "InstallOnly.list" ]]; then
+    echo "This needs to be run inside the restore directory."
+    exit 1
+fi
+if [[ ! -d "trusted.gpg.d" ]]; then
+    echo "This needs to be run inside the restore directory."
+    exit 1
+fi
+
+TMPDIR="\$(mktemp -d -t restore-XXXX)"
+bold="$(tput bold)"
+normal="$(tput sgr0)"
+
+cleanup() {
+    [[ -n "\$TMPDIR" && -d "\$TMPDIR" ]] && rm -rf "\$TMPDIR"
+}
+trap cleanup EXIT
+
+#apt-key add /etc/restore/Repo.keys
+#dpkg --set-selections < /etc/restore/Package.list
+#apt-get dselect-upgrade
+
+install=""
+
+echo "\${bold} * Installing required packages\${normal}"
+dpkg-query -s 'rsync' &>/dev/null               || install+=" rsync"
+#dpkg-query -s 'borgbackup' &>/dev/null          || install+=" borgbackup"
+#dpkg-query -s 'borgmatic' &>/dev/null           || install+=" borgmatic"
+dpkg-query -s 'apt-transport-https' &>/dev/null || install+=" apt-transport-https"
+
+if [[ -n "\$install" ]]; then
+    apt -y install \$install
+fi
+
+echo "\${bold} * Enabling 32-bit packages\${normal}"
+grep ':i386' InstallOnly.list &>/dev/null && dpkg --add-architecture i386
+
+echo "\${bold} * Checking for flatpak\${normal}"
+flatpak=0
+grep 'flatpak' InstallOnly.list &>/dev/null && flatpak=1
+if [[ "\$flatpak" -eq 1 ]]; then
+    echo " * Adding flatpak repo: Flathub"
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+fi
+
+if [[ -r "sources.list" ]]; then
+    echo "\${bold}"
+    echo "=============================="
+    echo "INSTALL REPOS"
+    echo "=============================="
+    echo "\${normal}"
+
+    read -p "\${bold}Do you want to continue to install backup repositories? [Y/n]\${normal} " -n 1 -sr promptRepos
+    if [[ "\$promptRepos" =~ ^[Yy]$ ]]; then
+        echo "Yes"
+        cp -a sources.list /etc/apt/sources.list
+        rsync --ignore-existing -raz sources.list.d/ /etc/apt/sources.list.d/
+        rsync --ignore-existing -raz trusted.gpg.d/ /etc/apt/trusted.gpg.d/
+        [[ -d keyrings ]] && rsync --ignore-existing -raz keyrings/ /etc/apt/keyrings/
+        apt update
+    else
+        echo -e "Cancelled\n"
+    fi
+fi
+
+echo "\${bold}"
+echo "=============================="
+echo "INSTALL PACKAGES"
+echo "=============================="
+echo "\${normal}"
+
+read -p "\${bold}About to install the system packages per the backup. Do you want to continue? [Y/n]\${normal} " -n 1 -sr promptPkgs
+if [[ "\$promptPkgs" =~ ^[Yy] ]]; then
+    echo "Yes"
+    comm --nocheck-order -23 InstallOnly.list <(apt-mark showmanual|sort) | grep -Ev 'linux-image|linux-headers' > "\${TMPDIR}/diff.list"
+    apt-get --simulate install \$(cat "\${TMPDIR}/diff.list") |& awk '/^E: Unable to locate package / {print \$NF}' | sort > "\${TMPDIR}/diff.fail"
+    comm --nocheck-order -23 "\${TMPDIR}/diff.list" "\${TMPDIR}/diff.fail" | xargs apt-get install
+
+    echo
+    echo "Packages that were omitted because they could not be found:"
+    cat "\${TMPDIR}/diff.fail" | tr '\n' ' ' | fold -s
+    echo
+    echo
+
+    read -p "\${bold}Did everything above look okay and do you want to proceed? [Y/n]\${normal} " -n 1 -sr promptPkgsDo
+    if [[ "\$promptPkgsDo" =~ ^[Yy] ]]; then
+        comm --nocheck-order -23 "\${TMPDIR}/diff.list" "\${TMPDIR}/diff.fail" | xargs apt-get install
+
+        echo
+        echo
+        echo "\${bold}Packages that failed to schedule for install:\${normal}"
+        cat "\${TMPDIR}/diff.fail" | tr '\n' ' ' | fold -s
+        echo
+        echo
+    else
+        echo -e "Cancelled\n"
+    fi
+else
+    echo -e "Cancelled\n"
+fi
+EOF
+    chmod ug+rx restore.sh
+    popd || exit 2
+}
+
+hook_after() {
+    :
+}
+
+hook_fail() {
+    :
+}
+
+hook_final() {
+    :
+}
+
+case "$1" in
+    before)     hook_before     || exit $?;;
+    after)      hook_after      || exit $?;;
+    fail)       hook_final      || exit $?;;
+    finally)    hook_final      || exit $?;;
+esac

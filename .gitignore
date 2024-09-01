@@ -1,0 +1,11 @@
+config/*
+!config/.keep
+!config/sysrescue/
+!config/sysrescue/.keep
+config/sysrescue/build_into_srm/usr/*
+config/sysrescue/build_into_srm/root/*
+!config/sysrescue/build_into_srm/.squashfs-pseudo
+!config/sysrescue/iso_add/*
+profiles.toml
+key
+excludes

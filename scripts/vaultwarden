@@ -1,0 +1,36 @@
+#!/bin/bash
+
+restoreDir=/etc/restore
+vaultwardenDir="$restoreDir/vaultwarden"
+
+hook_before() {
+    if [[ -d "$vaultwardenDir" ]]; then
+        rm -rf "$vaultwardenDir" || exit 1
+    fi
+
+    test -x "$(which sqlite3)" || exit 2
+    backupDate=$(date +"%Y-%m-%d")
+    vaultwardenHome=$(getent passwd vaultwarden | cut -f6 -d:)
+
+    mkdir -p "$vaultwardenDir"
+    sqlite3 "${vaultwardenHome}/data/db.sqlite3" ".backup '${vaultwardenDir}/db-${backupDate}.sqlite3'"
+}
+
+hook_after() {
+    rm -rf "$vaultwardenDir" || exit 1
+}
+
+hook_fail() {
+    :
+}
+
+hook_final() {
+    :
+}
+
+case "$1" in
+    before)     hook_before     || exit $?;;
+    after)      hook_after      || exit $?;;
+    fail)       hook_fail       || exit $?;;
+    finally)    hook_final      || exit $?;;
+esac

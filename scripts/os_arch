@@ -1,0 +1,46 @@
+#!/bin/bash
+
+restoreDir="/etc/restore"
+
+hook_before() {
+    mkdir -p "$restoreDir" || exit 1
+    pushd "$restoreDir" || exit 2
+
+    pacman -Qqe > "pkglist.txt"
+    comm -13 <(pacman -Qqdt | sort) <(pacman -Qqdtt | sort) > optdeplist.txt
+    pacman -Qqem > foreignpkglist.txt
+    
+    cat > restore.sh <<EOF
+#!/bin/bash
+
+# Install non-foreign packages from pgklist:
+pacman -S --needed \$(comm -12 <(pacman -Slq | sort) <(sort pkglist.txt))
+
+# Remove packages not listed.
+#pacman -Rsu \$(comm -23 <(pacman -Qq | sort) <(sort pkglist.txt))
+
+# Install AUR packages
+paru -Sa --fm thunar - <foreign-pkglist.txt
+
+EOF
+    popd || exit 2
+}
+
+hook_after() {
+    :
+}
+
+hook_fail() {
+    :
+}
+
+hook_final() {
+    :
+}
+
+case "$1" in
+    before)     hook_before     || exit $?;;
+    after)      hook_after      || exit $?;;
+    fail)       hook_fail       || exit $?;;
+    finally)    hook_final      || exit $?;;
+esac

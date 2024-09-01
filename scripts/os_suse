@@ -1,0 +1,172 @@
+#!/bin/bash
+
+restoreDir="/etc/restore"
+
+hook_before() {
+    mkdir -p "$restoreDir" || exit 1
+    pushd "$restoreDir" || exit 2
+
+    rpm -qa | sort > Package.versions.list
+    rpm -qa --queryformat '%{NAME}.%{ARCH}\n' | sort > Package.all.list
+    zypper se -i -t pattern | awk '/^i\+/ { print $3 }' | sort > Pattern.list
+    zypper se -i -t package | awk '/^i\+/ { print $3 }' | sort > Package.list
+    zypper lr -e Backup.repos
+    zypper ll | awk '/.*\| package.*/ { print $3 }' > Package.lock
+
+    cat > restore.sh <<EOF
+#!/bin/bash
+
+if [[ ! -f "Package.list" ]]; then
+    echo "This needs to be run inside the restore directory."
+    exit 1
+fi
+
+if [[ -r "Backup.repos" ]]; then
+    echo
+    echo "=============================="
+    echo "INSTALL REPOS"
+    echo "=============================="
+    echo
+    read -p "Do you want to continue to install backup repositories? [Y/n] " -n 1 -sr promptRepos
+    if [[ "\$promptRepos" =~ ^[Yy]$ ]]; then
+        echo "Yes"
+        zypper ar Backup.repos
+        zypper --gpg-auto-import-keys refresh
+    else
+        echo -e "Cancelled\n"
+    fi
+fi
+
+if [[ -r "opi.conf" ]]; then
+    source "opi.conf"
+
+    if [[ -n "\$opimodules" ]]; then
+        echo
+        echo "=============================="
+        echo "INSTALL OPI"
+        echo "=============================="
+        echo
+        echo "About to install the following OPI modules:"
+        echo "\$opimodules"
+        echo
+        read -p "Do you want to continue to install these? [Y/n] " -n 1 -sr promptOPI
+        if [[ "\$promptOPI" =~ ^[Yy]$ ]]; then
+            echo "Yes"
+            zypper install -y opi
+            opi -nm \$opimodules
+        else
+            echo -e "Cancelled\n"
+        fi
+    fi
+fi
+
+#zypper dist-upgrade --from packman --allow-vendor-change
+#zypper install --from packman ffmpeg gstreamer-plugins-{good,bad,ugly,libav} libavcodec vlc-codecs
+
+if [[ -r "Pattern.list" && "\$(wc -l --total=only Pattern.list)" -gt 0 ]]; then
+    echo
+    echo "=============================="
+    echo "INSTALL PATTERNS"
+    echo "=============================="
+    echo
+    echo "The following patterns are listed to be installed:"
+    cat Pattern.list
+    echo
+    read -p "Do you want to continue to install these? [Y/n] " -n 1 -sr promptPattern
+    if [[ "\$promptPattern" =~ ^[Yy] ]]; then
+        echo "Yes"
+        cat Pattern.list | xargs zypper install -t pattern
+    else
+        echo -e "Cancelled\n"
+    fi
+fi
+
+echo
+echo "=============================="
+echo "INSTALL PACKAGES"
+echo "=============================="
+echo
+read -p "About to install the system packages per the backup. Do you want to continue? [Y/n] " -n 1 -sr promptPkgs
+if [[ "\$promptPkgs" =~ ^[Yy] ]]; then
+    echo "Yes"
+    cat Package.list | xargs zypper install
+else
+    echo -e "Cancelled\n"
+fi
+
+# Removal uninstalled packages:
+echo
+echo "=============================="
+echo "REMOVE PACKAGES"
+echo "=============================="
+echo
+read -p "!!WARNING!! The next step is to remove packages that may not be desired. Do you want to continue? [Y/n] " -n 1 -sr promptRm
+if [[ "\$promptRm" =~ ^[Yy]$ ]]; then
+    # Do the thing
+    echo "Yes"
+    rpm -qa --queryformat '%{NAME}.%{ARCH}\n' | sort > /tmp/Package.new.list
+    echo "Here's a list of packages that would be removed:"
+    comm -13 Package.all.list /tmp/Package.new.list
+
+    read -p "Do you want to omit any removals or cancel? [N, y, c] " -n 1 -sr promptRmVerify
+    if [[ "\$promptRmVerify" =~ ^[Yy]$ ]]; then
+        echo
+        read -p "What do you want to omit, seperated by spaces? " -r promptOmit
+        omitrm="\$(echo "\$promptOmit" | tr ' ' '|')"
+        echo
+    elif [[ "\$promptRmVerify" =~ ^[Cc]$ ]]; then
+        echo -e "Cancelled\n"
+        omitrm="CANCEL"
+    else
+        omitrm=""
+        echo
+    fi
+    
+    if [[ "\$omitrm" != "CANCEL" ]]; then
+        comm -13 Package.all.list /tmp/Package.new.list | egrep -v "(\$omitrm)" | xargs zypper remove
+    fi
+else
+    echo -e "Cancelled\n"
+fi
+
+# Package Locks
+if [[ -r "Package.lock" && "\$(wc -l --total=only Package.list)" -gt 0 ]]; then
+    echo
+    echo "=============================="
+    echo "PACKAGE LOCKS"
+    echo "=============================="
+    echo
+    echo "The following packages are found to be locked:"
+    cat Package.lock
+    echo
+    read -p "Do you want to lock these packages per the backup? [Y/n] " -n 1 -sr promptLock
+    if [[ "\$promptLock" =~ ^[Yy]$ ]]; then
+        echo "Yes"
+        cat Package.lock | xargs zypper addlock
+    else
+        echo -e "Cancelled\n"
+    fi
+fi
+EOF
+
+    popd || exit 2
+}
+
+hook_after() {
+    :
+}
+
+hook_fail() {
+    :
+}
+
+hook_final() {
+    :
+}
+
+case "$1" in
+    before)     hook_before     || exit $?;;
+    after)      hook_after      || exit $?;;
+    fail)       hook_fail       || exit $?;;
+    finally)    hook_final      || exit $?;;
+esac

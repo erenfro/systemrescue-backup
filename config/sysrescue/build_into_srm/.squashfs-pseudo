@@ -1,0 +1,10 @@
+/root m 700 root root
+/root/.ssh m 700 root root
+/root/.ssh/authorized_keys m 600 root root
+/root/.config m 755 root root
+/root/.config/resticprofile m 700 root root
+/root/.config/resticprofile/key m 600 root root
+/root/.config/resticprofile/profiles.toml m 500 root root
+/root/.config/resticprofile/excludes m 600 root root
+/root/.config/resticprofile/root-excludes m 600 root root-excludes
+

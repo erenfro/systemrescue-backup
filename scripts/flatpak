@@ -1,0 +1,80 @@
+#!/bin/bash
+
+restoreDir="/etc/restore"
+
+hook_before() {
+    mkdir -p "$restoreDir" || exit 1
+    pushd "$restoreDir" || exit 2
+
+    which flatpak || exit 0
+
+    flatpak list --columns=application --app > flatpaks.lst
+
+    cat > restore-flatpak.sh <<EOF
+#!/bin/bash
+
+if [[ ! -f "flatpaks.lst" ]]; then
+    echo "This needs to be run inside the restore directory."
+    exit 1
+fi
+
+# Removal uninstalled packages:
+echo
+echo "=============================="
+echo "INSTALL FLATPAK PACKAGES"
+echo "=============================="
+echo
+echo "The following flatpak packages are listed to be installed:"
+cat flatpaks.lst
+echo
+read -p "Do you want to proceed? [Y/n] " -n 1 -sr promptFlatpak
+if [[ "\$promptFlatpak" =~ ^[Yy]$ ]]; then
+    # Do the thing
+    echo "Yes"
+
+    read -p "Do you want to omit any packages or cancel? [N, y, c] " -n 1 -sr promptFlatpakVerify
+    if [[ "\$promptFlatpakVerify" =~ ^[Yy]$ ]]; then
+        echo
+        read -p "What do you want to omit, seperated by spaces? " -r promptFlatpakOmit
+        omitfp="\$(echo "\$promptFlatpakOmit" | tr ' ' '|')"
+        echo
+    elif [[ "\$promptFlatpakVerify" =~ ^[Cc]$ ]]; then
+        echo -e "Cancelled\n"
+        omitfp="CANCEL"
+    else
+        omitfp=""
+        echo
+    fi
+    
+    if [[ "\$omitfp" != "CANCEL" ]]; then
+        egrep -v "(\$omitfp)" flatpaks.lst | xargs flatpak install -y
+    fi
+else
+    echo -e "Cancelled\n"
+fi
+EOF
+#which flatpak || exit 0
+#xargs flatpak install -y < flatpaks.lst
+#EOF
+    chmod ug+rx restore-flatpak.sh
+    popd || exit 2
+}
+
+hook_after() {
+    :
+}
+
+hook_fail() {
+    :
+}
+
+hook_final() {
+    :
+}
+
+case "$1" in
+    before)     hook_before     || exit $?;;
+    after)      hook_after      || exit $?;;
+    fail)       hook_fail       || exit $?;;
+    finally)    hook_final      || exit $?;;
+esac

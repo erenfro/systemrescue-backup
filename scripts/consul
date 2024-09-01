@@ -1,0 +1,66 @@
+#!/bin/bash
+
+restoreDir=/etc/restore
+consulDir="/var/backups/consul"
+scriptDir="$(dirname "$0")"
+
+readConfig() {
+    if [[ -r "${scriptDir}/../config/consul_backup.cfg" ]]; then
+        source "${scriptDir}/../config/consul_backup.cfg"
+    fi
+}
+
+check() {
+    if [[ -d "$consulDir" ]]; then
+        echo "Cleaning out old Consul backups..."
+        rm -f "$consulDir"/* || return 1
+    else
+        mkdir -p "$consulDir" | return 1
+    fi
+
+    if [[ -n "$CONSUL_PATH" ]]; then
+        if [[ -x "${CONSUL_PATH}/consul" ]]; then
+            echo "Found Consul in $CONSUL_PATH"
+        else
+            echo "FATAL: Cannot execute Consul in $CONSUL_PATH"
+            return 3
+        fi
+    else
+        if ! which consul &>/dev/null; then
+            echo "Cannot find Consul in PATH"
+            return 2
+        fi
+        if [[ -x "$(which consul)" ]]; then
+            CONSUL_PATH="$(dirname "$(which consul)")"
+            echo "Found Consul in $CONSUL_PATH"
+        else
+            echo "FATAL: Cannot execute Consul"
+            return 3
+        fi
+    fi
+}
+
+hook_before() {
+    readConfig
+    check || exit $?
+    ${CONSUL_PATH}/consul snapshot save "$consulDir/consul.snap"
+}
+
+hook_after() {
+    :
+}
+
+hook_fail() {
+    :
+}
+
+hook_final() {
+    :
+}
+
+case "$1" in
+    before)     hook_before     || exit $?;;
+    after)      hook_after      || exit $?;;
+    fail)       hook_fail       || exit $?;;
+    finally)    hook_final      || exit $?;;
+esac

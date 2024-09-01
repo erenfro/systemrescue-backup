@@ -1,0 +1,58 @@
+#!/bin/bash
+
+restoreDir=/etc/restore
+mysqlDir="$restoreDir/mysql"
+scriptDir="$(dirname "$0")"
+
+function readConfig() {
+	if [[ -r "${scriptDir}/../config/mysql_backup.cfg" ]]; then
+        source "${scriptDir}/../config/mysql_backup.cfg"
+	fi
+}
+
+function runBackups() {
+    local dbname
+
+    readConfig
+
+    if [[ ! -d "/var/backups/mysql" ]]; then
+        mkdir -p "/var/backups/mysql" || return 1
+    fi
+    echo "Clearing out old MySQL backups..."
+    rm -f /var/backups/mysql/*
+
+    while read dbname
+    do
+        case "$dbname" in
+            sys)                continue;;
+            information_schema) continue;;
+            performance_schema) continue;;
+        esac
+
+        echo "Backing up database: $dbname"
+        mysqldump --complete-insert --routines --triggers --single-transaction "$dbname" > /var/backups/mysql/"$dbname".sql
+    done < <(mysql -N -e 'show databases')
+}
+
+hook_before() {
+	runBackups || exit $?
+}
+
+hook_after() {
+	rm -rf "$mysqlDir" || exit 1
+}
+
+hook_fail() {
+	:
+}
+
+hook_final() {
+	:
+}
+
+case "$1" in
+    before)     hook_before || exit $? ;;
+    after)      hook_after || exit $? ;;
+    fail)       hook_fail || exit $? ;;
+    finally)    hook_final || exit $? ;;
+esac

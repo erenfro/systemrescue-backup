@@ -1,0 +1,70 @@
+#!/bin/bash
+
+restoreDir=/etc/restore
+pgsqlDir="$restoreDir/postgresql"
+scriptDir="$(dirname "$0")"
+
+function readConfig() {
+	local $config
+
+	if [[ -r "${scriptDir}/../config/postgresql.cfg" ]]; then
+		config="$(readlink -f "${scriptDir}/../config/postgresql.cfg")"
+	else
+		exit 2
+	fi
+
+    while read -r -a vals
+    do
+        [[ "${vals[*]}" =~ ^#.*$ ]] && continue
+        [[ -z "${vals[0]}" ]] && continue
+        if [[ "${vals[0]}" -ge 10 ]]; then
+            echo "${vals[@]}"
+        fi
+    done < "$config"
+}
+
+function runBackups() {
+    local vals
+    local version
+    local cluster
+
+    while read -r -a vals
+    do
+        version="${vals[0]}"
+        cluster="${vals[1]}"
+
+        echo "Backing up PostgreSQL $version - $cluster"
+        pg_backupcluster "$version" "$cluster" createdirectory                      || return $?
+        sudo -u postgres pg_backupcluster "$version" "$cluster" basebackup          || return $?
+        sudo -u postgres pg_backupcluster "$version" "$cluster" dump                || return $?
+        sudo -u postgres pg_backupcluster "$version" "$cluster" expirebasebackups 1 || return $?
+        sudo -u postgres pg_backupcluster "$version" "$cluster" expiredumps 1       || return $?
+    done < <(readConfig)
+}
+
+hook_before() {
+	if [[ -d "$pgsqlDir" ]]; then
+		rm -rf "$pgsqlDir" || exit 1
+	fi
+
+	runBackups || exit $?
+}
+
+hook_after() {
+	rm -rf "$pgsqlDir" || exit 1
+}
+
+hook_fail() {
+	:
+}
+
+hook_final() {
+	:
+}
+
+case "$1" in
+before) hook_before || exit $? ;;
+after) hook_after || exit $? ;;
+fail) hook_fail || exit $? ;;
+finally) hook_final || exit $? ;;
+esac

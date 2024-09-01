@@ -1,0 +1,100 @@
+#!/bin/bash
+
+restoreDir="/etc/restore"
+
+kernel="$(uname -s)"
+scriptPath="$(dirname "$(readlink -f "$0")")"
+
+source "${scriptPath}/functions.sh"
+
+if [[ "$kernel" == "Darwin" ]]; then
+    restoreDir="${HOME}/restore"
+fi
+
+createRestoreDir() {
+    if [[ -d "${restoreDir}" ]]; then
+        rm -rf "${restoreDir:?}/*" || exit 2
+    else
+        mkdir -p "${restoreDir}" || exit 2
+    fi
+}
+
+checkOS() {
+    if [[ "$kernel" == "Darwin" ]]; then
+        return 0
+    elif [[ "$kernel" == "Linux" ]]; then
+        if [[ -f /etc/os-release ]]; then
+            source /etc/os-release
+            DISTRO="$ID"
+            DISTRO_CURRENT="$DISTRO"
+            if [[ -n "$ID_LIKE" ]]; then
+                DISTRO="${ID_LIKE%% *}"
+            fi
+            return 0
+        else
+            echo "Unknown Linux Distribution"
+            return 1
+        fi
+    fi
+    return 1
+}
+
+runOsHook() {
+    local hook="$1"
+
+    if [[ "$kernel" == "Darwin" ]]; then
+        "${scriptPath}/os_macos" "$hook"
+    elif [[ "$kernel" == "Linux" ]]; then
+        case "$DISTRO" in
+            debian|ubuntu)          "${scriptPath}/os_debian" "$hook";;
+            fedora)                 "${scriptPath}/os_fedora" "$hook";;
+            arch)                   "${scriptPath}/os_arch" "$hook";;
+            solus)                  "${scriptPath}/os_solus" "$hook";;
+            opensuse-leap)          "${scriptPath}/os_suse" "$hook";;
+            opensuse-tumbleweed)    "${scriptPath}/os_suse" "$hook";;
+        esac
+
+        if command -v flatpak &>/dev/null; then
+            "${scriptPath}/flatpak" "$hook"
+        fi
+    fi
+    return $?
+}
+
+hook_before() {
+    checkOS || exit 200
+    pushd "$scriptPath" &>/dev/null || exit 201
+    git checkout -- .
+    git pull
+    popd &>/dev/null || exit 201
+
+    createRestoreDir || exit $?
+    runOsHook before
+}
+
+hook_fail() {
+    checkOS || exit 200
+    runOsHook fail
+}
+
+hook_after() {
+    checkOS || exit 200
+    backup_partitions || exit 200
+    runOsHook after
+}
+
+hook_final() {
+    checkOS || exit 200
+    if [[ ! -f "${restoreDir}/.do-not-delete" ]]; then
+        rm -rf "$restoreDir"
+    fi
+    runOsHook final
+}
+
+
+case "$1" in
+    before)     hook_before     || exit $?;;
+    after)      hook_after      || exit $?;;
+    fail)       hook_final      || exit $?;;
+    finally)    hook_final      || exit $?;;
+esac
