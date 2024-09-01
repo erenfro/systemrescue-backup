@@ -1,0 +1,4 @@
+/var/log/journal
+/var/log/*.gz
+/var/log/*.bz2
+/var/log/*.xz

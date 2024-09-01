@@ -9,3 +9,5 @@ config/sysrescue/build_into_srm/root/*
 profiles.toml
 key
 excludes
+!templates/*
+
