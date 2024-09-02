@@ -1,4 +1,12 @@
 #!/bin/bash
 
 scriptPath="$(dirname "$(readlink -f "$0")")"
+#configPath="$(dirname "$(readlink -f "${scriptPath}/../config")")"
+
+if [[ -r "${scriptPath}/functions.sh" ]]; then
+    source "${scriptPath}/functions.sh"
+else
+    echo "FATAL: Cannot find installed engine."
+    exit 255
+fi
 

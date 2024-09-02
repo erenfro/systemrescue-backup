@@ -1,12 +1,58 @@
-#!/bin/bash 
+#!/bin/bash
+
+###########################################################
+### Default global configuration definitions
+###########################################################
+
+restic_version="0.17.0"
+resticprofile_version="0.28.0"
+systemrescuecd_version="11.02"
+backup_engine="resticprofile"
+
+scriptPath="$(dirname "$(readlink -f "$0")")"
+configPath="$(readlink -f "${scriptPath}/../config")"
+
+if [[ ! -d "${configPath}" ]]; then
+    # Start searching for common configuration paths
+    if [[ -r "$HOME/.config/systemrescue-backup/srb.cfg" ]]; then
+        configPath="$HOME/.config/systemrescue-backup"
+    elif [[ -r "/etc/systemrescue-backup/srb.cfg" ]]; then
+        configPath="/etc/systemrescue-backup"
+    else
+        echoerr "No configuration file path found. Defaults will be used." 1>&2
+    fi
+fi
+
+if [[ -f "${configPath}/srb.cfg" ]]; then
+    # Fail on any issues loading configuration
+    trap "echo \"ERROR: Configuration failed to load without error\"" ERR
+    set -e
+    source "${configPath}/srb.cfg"
+    set +e
+    trap - ERR
+fi
+
 
 ###########################################################
 ### Utility & Common Functions
 ###########################################################
 
-function is_bin_in_path {
+is_bin_in_path() {
     builtin type -P "$1" &>/dev/null
 }
+
+echoerr() {
+    echo "$*" 1>&2
+}
+
+exit_fail() {
+    local rc=$1
+    shift
+
+    echoerr "$*"
+    exit "$rc"
+}
+
 
 ###########################################################
 ### BACKUP and RESTORE FUNCTIONS
