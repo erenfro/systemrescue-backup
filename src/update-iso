@@ -75,6 +75,13 @@ curl -C - -Lso "${systemrescueBaseDir}/systemrescue-${systemrescueVersion}-amd64
 curl -C - -Lso "${systemrescueBaseDir}/systemrescue-customize" "https://gitlab.com/systemrescue/systemrescue-sources/-/raw/main/airootfs/usr/share/sysrescue/bin/sysrescue-customize?inline=false"
 chmod 755 "${systemrescueBaseDir}/systemrescue-customize"
 chown root:root "${systemrescueBaseDir}/systemrescue-customize"
+mkdir "${systemrescueTempDir}/customize"
+
+"${systemrescueBaseDir}/systemrescue-customize" --auto --overwrite \
+    --source="${systemrescueBaseDir}/systemrescue-${systemrescueVersion}-amd64.iso" \
+    --dest="${systemrescueBaseDir}/systemrescue-backup-${systemrescueVersion}-amd64.iso" \
+    --recipe-dir="${configPath}/sysrescue" \
+    --work-dir="${systemrescueTempDir}/customize"
 
 if [[ "${backupEngine,,}" == "resticprofile" ]]; then
     umount "${configPath}/sysrescue/build_into_srm/etc/resticprofile"

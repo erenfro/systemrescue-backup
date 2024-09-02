@@ -1,0 +1,4 @@
+#!/bin/bash
+
+scriptPath="$(dirname "$(readlink -f "$0")")"
+
