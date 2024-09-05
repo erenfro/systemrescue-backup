@@ -10,3 +10,132 @@ else
     exit 255
 fi
 
+showHelp() {
+    local section="$1"
+
+    echo "No help yet"
+    echo "Usage: $0 [global-options] <command> [options]"
+    echo
+    echo "Commands:"
+    echo "  backup                   Perform system backup"
+    echo "  restore                  Perform system restore"
+    echo "  recovery                 Update/Generate system recovery disc image"
+    echo
+    echo "Global Options:"
+    echo "  --debug, -d              Enable Debug Logging"
+    echo "  --help, -h               Show this help"
+    echo
+    echo "Options (per command):"
+
+    if [[ -z "$section" || "$section" == "backup" ]]; then
+        echo "backup:"
+        echo "  --exclude <pattern>      Exclude devices matching the pattern from backup or restore."
+        echo "  --exclude-file <file>    Exclude devices listed in the specified file from backup or restore."
+        echo
+    fi
+
+    if [[ -z "$section" || "$section" == "restore" ]]; then
+        echo "restore:"
+        echo "  --exclude <pattern>      Exclude devices matching the pattern from backup or restore."
+        echo "  --exclude-file <file>    Exclude devices listed in the specified file from backup or restore."
+        echo "  --rename <old> <new>     Rename a device during the restore process."
+        echo "  --no-uuid                Disable restoring of UUIDs during restore."
+        echo
+    fi
+
+    if [[ -z "$section" || "$section" == "recovery" ]]; then
+        echo "recovery:"
+        echo "  --sysrecue-cd-version=ver  System Rescue CD version to use: $systemrescue_cd_version"
+        echo
+    fi
+
+    echo "Examples:"
+    echo "  $0 backup --exclude /dev/sda1"
+    echo "  $0 restore --rename /dev/sda /dev/sdb"
+    echo
+}
+
+
+
+# Main function to handle command-line arguments and invoke appropriate functions
+main() {
+    local help=false
+
+    #if [[ "$1" == "--help" ]]; then
+    #    showHelp
+    #    exit 0
+    #fi
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                help=true
+                shift
+                #showHelp
+                #exit 0
+                ;;
+            -d|--debug)
+                debug=true;
+                shift
+                ;;
+            #--*|-*)
+            #    echo "Unknown option $1"
+            #    exit 1
+            #    ;;
+            *)
+                POSITIONAL_ARGS+=("$1") # save positional arg
+                shift
+                ;;
+        esac
+    done
+
+    set -- "${POSITIONAL_ARGS[@]}" # restore positional args
+
+    if $help; then
+        showHelp "$1"
+        exit 0
+    fi
+
+    case "$1" in
+        version)
+            echo "SystemRescue Backup version v${systemrescue_version}"
+            exit 0
+            ;;
+        backup)
+            echo "SystemRescue Backup -- Backup Mode"
+            ;;
+        restore)
+            echo "SystemRescue Backup -- Restore Mode"
+            ;;
+        recovery)
+            shift
+            while [[ "$#" -gt 0 ]]; do
+                case "$1" in
+                    --sysrecue-cd-version=*)
+                        systemrescue_cd_version="${1#*=}"
+                        shift
+                        ;;
+                    *)
+                        echo "Invalid option: $1"
+                        echo "Use --help to display the help message."
+                        exit 1
+                        ;;
+                esac
+            done
+
+            echo "SystemRescue Backup -- Recovery CD"
+            echo "opt: $*"
+            if ! load_module recovery init; then
+                exit_fail 200 "FATAL: Failed to load recovery init module. ($?)"
+            fi
+            ;;
+        *)
+            echo "Invalid command: $1"
+            echo "Use --help to display the help message."
+            exit 1
+            ;;
+    esac
+}
+
+# Call the main function with all arguments
+main "$@"

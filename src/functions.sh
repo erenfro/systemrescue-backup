@@ -4,13 +4,15 @@
 ### Default global configuration definitions
 ###########################################################
 
+declare -r systemrescue_version="0.0.1"
+systemrescue_cd_version="11.02"
+backup_engine="resticprofile"
 restic_version="0.17.0"
 resticprofile_version="0.28.0"
-systemrescuecd_version="11.02"
-backup_engine="resticprofile"
 
 scriptPath="$(dirname "$(readlink -f "$0")")"
 configPath="$(readlink -f "${scriptPath}/../config")"
+debug=false
 
 if [[ ! -d "${configPath}" ]]; then
     # Start searching for common configuration paths
@@ -41,7 +43,29 @@ is_bin_in_path() {
     builtin type -P "$1" &>/dev/null
 }
 
+echoreg() {
+    if [[ "$1" == "-d" ]]; then
+        shift
+        if $debug; then
+            echo "$*" 1>&2
+        fi
+    else
+        echo "$*" 1>&2
+    fi
+}
+
 echoerr() {
+    if [[ "$1" == "-d" ]]; then
+        shift
+        if $debug; then
+            echo "$*" 1>&2
+        fi
+    else
+        echo "$*" 1>&2
+    fi
+}
+
+echodebug() {
     echo "$*" 1>&2
 }
 
@@ -51,6 +75,85 @@ exit_fail() {
 
     echoerr "$*"
     exit "$rc"
+}
+
+run-parts() {
+    if [[ $# -lt 1 ]]; then
+        return 1
+    elif [[ ! -d "$1" ]]; then
+        return 2
+    fi
+
+    local script
+
+    for script in "${1%/}"/*; do
+        case $script in
+            *~ | *.bak | */#*# | *.swp)
+                : ;; # Ignore backup/editor files
+            *.new | *.rpmsave | *.rpmorig | *.rpmnew)
+                : ;; # Ignore package management files
+            *)
+                if [[ -x "$script" ]]; then
+                    if ! "$script"; then
+                        echoerr "$script failed"
+                        return $?
+                    fi
+                fi
+                ;;
+        esac
+    done
+}
+
+load-parts() {
+    if [[ $# -lt 1 ]]; then
+        echoerr -d "load-parts parameters are invalid"
+        return 1
+    elif [[ ! -d "$1" ]]; then
+        echoerr -d "load-parts missing directory '$1'"
+        return 2
+    fi
+
+    local script
+
+    for script in "${1%/}"/*; do
+        case $script in
+            *~ | *.bak | */#*# | *.swp)
+                : ;; # Ignore backup/editor files
+            *.new | *.rpmsave | *.rpmorig | *.rpmnew)
+                : ;; # Ignore package management files
+            *)
+                if [[ -r "$script" ]]; then
+                    set -e
+                    echoreg -d "Loading script: $script"
+                    source "$script"
+                    set +e
+                fi
+                ;;
+        esac
+    done
+}
+
+load_module() {
+    local module="$1"
+    local submod="$2"
+
+    if [[ -z "$module" ]]; then
+        echoerr -d "load_module missing module"
+        return 1
+    elif [[ -z "$submod" ]]; then
+        echoerr -d "load_module missing submodule"
+        return 2
+    else
+        if [[ ! -d "${scriptPath}/${module}" ]]; then
+            echoerr -d "load_module missing module directory '${scriptPath}/${module}'"
+            return 3
+        elif [[ ! -d "${scriptPath}/${module}/${submod}" ]]; then
+            echoerr -d "load_module missing submodule directory '${scriptPath}/${submod}'"
+            return 4
+        fi
+    fi
+
+    load-parts "${scriptPath}/${module}/${submod}"
 }
 
 
