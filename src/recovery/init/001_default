@@ -1,1 +1,8 @@
+#!/bin/bash 
+
 echoreg -d "Loaded Recovery Initialization"
+
+# Setup Defaults according to what's been develeoped and tested
+systemrescue_cd_version="11.02"
+systemrescue_cd_iso_url="https://sourceforge.net/projects/systemrescuecd/files/sysresccd-x86/{SYSRESCUECD_VERSION}/systemrescue-{SYSRESCUECD_VERSION}-amd64.iso/download"
+systemrescue_cd_customize_url=""https://gitlab.com/systemrescue/systemrescue-sources/-/raw/main/airootfs/usr/share/sysrescue/bin/sysrescue-customize?inline=false""

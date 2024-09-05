@@ -6,32 +6,24 @@
 
 declare -r systemrescue_version="0.0.1"
 systemrescue_cd_version="11.02"
+systemrescue_data_dir="/var/backups/systemrescue-backup"
+systemrescue_cache_dir="/var/cache/systemrescue-backup"
+systemrescue_temp_dir="/tmp/systemrescue-backup"
 backup_engine="resticprofile"
-restic_version="0.17.0"
-resticprofile_version="0.28.0"
 
 scriptPath="$(dirname "$(readlink -f "$0")")"
 configPath="$(readlink -f "${scriptPath}/../config")"
 debug=false
 
-if [[ ! -d "${configPath}" ]]; then
+if [[ ! -r "${configPath}/srb.cfg" ]]; then
     # Start searching for common configuration paths
     if [[ -r "$HOME/.config/systemrescue-backup/srb.cfg" ]]; then
         configPath="$HOME/.config/systemrescue-backup"
     elif [[ -r "/etc/systemrescue-backup/srb.cfg" ]]; then
         configPath="/etc/systemrescue-backup"
     else
-        echoerr "No configuration file path found. Defaults will be used." 1>&2
+        echoerr "Warning: No configuration file path found. Defaults will be used."
     fi
-fi
-
-if [[ -f "${configPath}/srb.cfg" ]]; then
-    # Fail on any issues loading configuration
-    trap "echo \"ERROR: Configuration failed to load without error\"" ERR
-    set -e
-    source "${configPath}/srb.cfg"
-    set +e
-    trap - ERR
 fi
 
 
@@ -75,6 +67,18 @@ exit_fail() {
 
     echoerr "$*"
     exit "$rc"
+}
+
+load_config() {
+    if [[ -f "${configPath}/srb.cfg" ]]; then
+        # Fail on any issues loading configuration
+        trap "echo \"ERROR: Configuration failed to load without error\"" ERR
+        set -e
+        source "${configPath}/srb.cfg"
+        set +e
+        trap - ERR
+        echoreg -d "Loaded configuration file: ${configPath}/srb.cfg"
+    fi
 }
 
 run-parts() {
@@ -159,12 +163,34 @@ load_module() {
     echoreg -d "Loaded Modules in: ${scriptPath}/${module}/${submod}/"
 }
 
+run_modules() {
+    local module="$1"
+    local submodules=("init" "prepare" "execute" "finalize")
+    local order mod
+
+    for load in "${submodules[@]}"; do
+        if [[ "$load" == "finalize" ]]; then
+            order=("$backup_engine" "$module")
+        else
+            order=("$module" "$backup_engine")
+        fi
+
+        for mod in "${order[@]}"; do
+            if ! load_module "$mod" "$load"; then
+                exit_fail 200 "FATAL: Failed to load $module $load module. ($?)"
+            fi
+        done
+
+        if [[ "$load" == "init" ]]; then
+            load_config
+        fi
+    done
+}
 
 ###########################################################
 ### BACKUP and RESTORE FUNCTIONS
 ###########################################################
 
-#dumpPartitions() {
 backup_partitions() {
     local rootPart rootDisk
 
@@ -177,7 +203,6 @@ backup_partitions() {
     mount | grep "$rootPart" > "${restoreDir}/mounts.dump"
 }
 
-#restorePartitions() {
 restore_partitions() {
     local rootPart rootDisk
 
@@ -203,7 +228,6 @@ restore_partitions() {
     echo "Partition table and UUID information have been restored."
 }
 
-#restoreBtrFSSubvolumes() {
 restore_btrfs_subvolumes() {
     local rootBase subvolID subvolPath
 
@@ -219,7 +243,6 @@ restore_btrfs_subvolumes() {
     done < "${restoreDir}/btrfs.dump"
 }
 
-#restoreBtrFSMounts() {
 restore_btfs_mounts() {
     local rootBase mountSource mountDest
 

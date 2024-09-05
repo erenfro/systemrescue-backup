@@ -127,7 +127,12 @@ main() {
                 case "$1" in
                     --cd-version=*)
                         systemrescue_cd_version="${1#*=}"
-                        echoreg -d "SystemRescueCD Version arg = $systemrescue_cd_version"
+                        echoreg -d "Args: SystemRescueCD Version = $systemrescue_cd_version"
+                        shift
+                        ;;
+                    --cd-url=*)
+                        systemrescue_cd_url="${1#*=}"
+                        echoreg -d "Args: SystemRescueCD Download url = $systemrescue_cd_url"
                         shift
                         ;;
                     *)
@@ -140,9 +145,21 @@ main() {
 
             echo "SystemRescue Backup -- Recovery CD"
             echoreg -d "opt: $*"
-            if ! load_module recovery init; then
-                exit_fail 200 "FATAL: Failed to load recovery init module. ($?)"
-            fi
+
+            run_modules recovery
+
+            # if ! load_module recovery init; then
+            #     exit_fail 200 "FATAL: Failed to load recovery init module. ($?)"
+            # fi
+            # if ! load_module "$backup_engine" init; then
+            #     exit_fail 201 "FATAL: Failed to load '$backup_engine' init module. ($?)"
+            # fi
+            
+            # load_config
+
+            # if ! load_module "$backup_engine" prepare; then
+            #     exit_fail 202 "FATAL Failed to load '$backup_engine' prepare module. ($?)"
+            # fi
             ;;
         *)
             echo "Invalid command: $1"

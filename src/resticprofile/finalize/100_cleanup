@@ -1,0 +1,5 @@
+#!/bin/bash
+
+if [[ -d "${systemrescue_data_dir}/build/build_into_srm/usr/local/bin" ]]; then
+    rm -rf "${systemrescue_data_dir}/build/build_into_srm/usr/local/bin" || return 1
+fi

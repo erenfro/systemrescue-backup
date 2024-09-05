@@ -1,0 +1,50 @@
+#!/bin/bash 
+
+echoreg "Using SystemRescueCD Version: $systemrescue_cd_version"
+echoreg "Using Restic Version: $restic_version"
+echoreg "Using ResticProfile Version: $resticprofile_version"
+
+mkdir -p "${systemrescue_cache_dir}" || return 1
+mkdir -p "${systemrescue_data_dir}/build/build_into_srm/usr/local/bin" || return 1
+mkdir -p "${systemrescue_temp_dir}/restic-install" || return 1
+
+if [[ ! -f "${systemrescue_cache_dir}/restic_${restic_version}_linux_amd64.bz2" ]]; then
+    curl -C - -Lso "${systemrescue_cache_dir}/restic_${restic_version}_linux_amd64.bz2" "https://github.com/restic/restic/releases/download/v${restic_version}/restic_${restic_version}_linux_amd64.bz2" || return 1
+fi
+bunzip2 -k "${systemrescue_cache_dir}/restic_${restic_version}_linux_amd64.bz2" || return 1
+chmod 755 "${systemrescue_cache_dir}/restic_${restic_version}_linux_amd64"
+chown root:root "${systemrescue_cache_dir}/restic_${restic_version}_linux_amd64"
+mv "${systemrescue_cache_dir}/restic_${restic_version}_linux_amd64" "${systemrescue_data_dir}/build/build_into_srm/usr/local/bin/restic" || return 1
+
+if [[ ! -f "${systemrescue_cache_dir}/resticprofile_${resticprofile_version}_linux_amd64.tar.gz" ]]; then
+    curl -C - -Lso "${systemrescue_cache_dir}/resticprofile_${resticprofile_version}_linux_amd64.tar.gz" "https://github.com/creativeprojects/resticprofile/releases/download/v${resticprofile_version}/resticprofile_${resticprofile_version}_linux_amd64.tar.gz" || return 1
+fi
+tar -xzf "${systemrescue_cache_dir}/resticprofile_${resticprofile_version}_linux_amd64.tar.gz" -C "${systemrescue_temp_dir}/restic-install" || return 1
+chmod 755 "${systemrescue_temp_dir}/restic-install/resticprofile"
+chown root:root "${systemrescue_temp_dir}/restic-install/resticprofile"
+mv "${systemrescue_temp_dir}/restic-install/resticprofile" "${systemrescue_data_dir}/build/build_into_srm/usr/local/bin/resticprofile" || return 1
+rm -rf "${systemrescue_temp_dir}/restic-install" || return 1
+
+mkdir -p "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile"
+if ! mount --bind "${resticprofile_config_dir}" "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile"; then
+    if ! cp -a "${resticprofile_config_dir}" "${systemrescue_data_dir}/build/build_into_srm/etc/"; then
+        exit_fail 205 "FATAL: Failed to copy resticprofile config files over to recovery image build"
+    fi
+fi
+
+if $debug; then
+    echo "==========================================================================="
+    echo "Cache Dir: $systemrescue_cache_dir"
+    ls -lR "$systemrescue_cache_dir"
+    echo "====="
+    echo
+
+    echo "Data Dir: $systemrescue_data_dir"
+    ls -lR "$systemrescue_data_dir"
+    echo "====="
+    echo
+
+    echo "Temp Dir: $systemrescue_temp_dir"
+    ls -lR "$systemrescue_temp_dir"
+    echo "==========================================================================="
+fi

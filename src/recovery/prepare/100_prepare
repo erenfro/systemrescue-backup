@@ -1,0 +1,21 @@
+#!/bin/bash 
+
+mkdir -p "$systemrescue_data_dir" || return 1
+mkdir -p "$systemrescue_temp_dir" || return 1
+mkdir -p "$systemrescue_cache_dir" || return 1
+
+mkdir -p "${systemrescue_data_dir}/build/build_into_srm/var/backups/systemrescue-backup/backupdb" || return 1
+#mount --bind "${systemrescue_data_dir}/backupdb" "${systemrescue_data_dir}/build/build_into_srm/var/backups/systemrescue-backup/backupdb" || exit 1
+if ! mount --bind "${systemrescue_data_dir}/backupdb" "${systemrescue_data_dir}/build/build_into_srm/var/backups/systemrescue-backup/backupdb"; then
+    if ! cp -a "${systemrescue_data_dir}/backupdb/" "${systemrescue_data_dir}/build/build_into_srm/var/backups/systemrescue-backup/backupdb/"; then
+        exit_fail 205 "FATAL: Failed to copy backupdb files over to recovery image build"
+    fi
+fi
+
+# mkdir -p "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile"
+# if ! mount --bind "${resticprofile_config_dir}" "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile"; then
+#     if ! cp -a "${resticprofile_config_dir}" "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile"; then
+#         exit_fail 205 "FATAL: Failed to copy resticprofile config files over to recovery image build"
+#     fi
+# fi
+#mount --bind "/etc/resticprofile" "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile" || return 1

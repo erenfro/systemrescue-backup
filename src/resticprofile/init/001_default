@@ -1,0 +1,58 @@
+#!/bin/bash 
+
+echoreg -d "Loaded resticprofile Recovery Module Initialization"
+
+# Setup Defaults according to what's been develeoped and tested
+restic_version="0.17.0"
+resticprofile_version="0.28.0"
+resticprofile_config_dir="/etc/resticprofile"
+
+resticprofile_init_find_config() {
+    local -a checkpaths
+    local path
+    local os
+
+    os=$(uname -s)
+
+    case "$os" in
+        Darwin)
+            checkpaths+=(
+                            "$HOME/Library/Preferences/resticprofile"
+                            "/Library/Preferences/resticprofile"
+                        )
+            ;;
+        CYGWIN*|MINGW*|MSYS_NT*)
+            exit_fail 255 "FATAL: Windows is not supported";;
+        *)
+            checkpaths+=(
+                            "$HOME/.config/resticprofile"
+                            "/etc/xdg/resticprofile"
+                        )
+            ;;
+    esac
+    checkpaths+=(
+                    "/usr/local/etc/restic/"
+                    "/usr/local/etc/resticprofile"
+                    "/etc/restic"
+                    "/etc/resticprofile"
+                    "/etc/restic"
+                    "/opt/local/etc/restic"
+                    "/opt/local/etc/resticprofile"
+                )
+    
+    for path in "${checkpaths[@]}"; do
+        if compgen -G "${path}/profiles.*" > /dev/null; then
+            resticprofile_config_dir="$path"
+            break
+        fi
+    done
+
+    # If it still doesn't exist, we got issues
+    if ! compgen -G "${resticprofile_config_dir}/profiles.*" > /dev/null; then
+        exit_fail 210 "Failed to find resticprofile configuration directory"
+    fi
+
+    echoreg "Found resticprofile configuration in '$resticprofile_config_dir'"
+}
+
+resticprofile_init_find_config

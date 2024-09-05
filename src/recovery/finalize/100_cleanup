@@ -1,0 +1,8 @@
+#!/bin/bash
+
+umount "${systemrescue_data_dir}/build/build_into_srm/var/backups/systemrescue-backup/backupdb" &>/dev/null
+umount "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile" &>/dev/null
+
+if [[ -d "${systemrescue_data_dir}/build/build_into_srm" ]]; then
+    rm -rf "${systemrescue_data_dir}/build/build_into_srm" || exit 1
+fi
