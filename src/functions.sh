@@ -94,8 +94,9 @@ run-parts() {
                 : ;; # Ignore package management files
             *)
                 if [[ -x "$script" ]]; then
+                    echoreg -d "+ Executing Script: $script"
                     if ! "$script"; then
-                        echoerr "$script failed"
+                        echoerr "! Failed Script: $script ($?)"
                         return $?
                     fi
                 fi
@@ -124,7 +125,7 @@ load-parts() {
             *)
                 if [[ -r "$script" ]]; then
                     set -e
-                    echoreg -d "Loading script: $script"
+                    echoreg -d "+ Loading Module: $script"
                     source "$script"
                     set +e
                 fi
@@ -153,7 +154,9 @@ load_module() {
         fi
     fi
 
+    echoreg -d "Loading Modules in: ${scriptPath}/${module}/${submod}/"
     load-parts "${scriptPath}/${module}/${submod}"
+    echoreg -d "Loaded Modules in: ${scriptPath}/${module}/${submod}/"
 }
 
 

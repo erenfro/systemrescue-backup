@@ -1,4 +1,24 @@
 #!/bin/bash
+# $Id$
+#
+# SystemRescue-Backup
+#
+#   SystemRescue-Backup is free software; you can distribut it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 3 of the license, or
+#   (at your option) any later version.
+#
+#   SystemRescue-Backup is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with SystemRescue-Backup; it not, write to the Free Software
+#   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+#
+# Authors:
+# See https://github.com/erenfro/systemrescue-backup/graphs/contributors
 
 scriptPath="$(dirname "$(readlink -f "$0")")"
 #configPath="$(dirname "$(readlink -f "${scriptPath}/../config")")"
@@ -24,34 +44,36 @@ showHelp() {
     echo "Global Options:"
     echo "  --debug, -d              Enable Debug Logging"
     echo "  --help, -h               Show this help"
+    echo "  --version, -v            Show current SystemRescue Backup version"
     echo
     echo "Options (per command):"
 
     if [[ -z "$section" || "$section" == "backup" ]]; then
         echo "backup:"
-        echo "  --exclude <pattern>      Exclude devices matching the pattern from backup or restore."
-        echo "  --exclude-file <file>    Exclude devices listed in the specified file from backup or restore."
+        echo "  --exclude=<pattern>      Exclude devices matching the pattern from backup"
+        echo "  --exclude-file=<file>    Exclude devices listed in the specified file from backup"
         echo
     fi
 
     if [[ -z "$section" || "$section" == "restore" ]]; then
         echo "restore:"
-        echo "  --exclude <pattern>      Exclude devices matching the pattern from backup or restore."
-        echo "  --exclude-file <file>    Exclude devices listed in the specified file from backup or restore."
-        echo "  --rename <old> <new>     Rename a device during the restore process."
-        echo "  --no-uuid                Disable restoring of UUIDs during restore."
+        echo "  --exclude=<pattern>      Exclude devices matching the pattern from restore"
+        echo "  --exclude-file=<file>    Exclude devices listed in the specified file from restore"
+        echo "  --rename=\"<old> <new>\"   Rename a device during the restore process"
+        echo "  --no-uuid                Disable restoring of UUIDs during restore"
+        echo "  --no-partition           Disable restoring of disk partitions during restore"
         echo
     fi
 
     if [[ -z "$section" || "$section" == "recovery" ]]; then
         echo "recovery:"
-        echo "  --sysrecue-cd-version=ver  System Rescue CD version to use: $systemrescue_cd_version"
+        echo "  --cd-version=ver         System Rescue CD version to use: $systemrescue_cd_version"
         echo
     fi
 
     echo "Examples:"
-    echo "  $0 backup --exclude /dev/sda1"
-    echo "  $0 restore --rename /dev/sda /dev/sdb"
+    echo "  $0 backup --exclude=/dev/sda1"
+    echo "  $0 restore --rename=\"/dev/sda /dev/sdb\""
     echo
 }
 
@@ -60,11 +82,7 @@ showHelp() {
 # Main function to handle command-line arguments and invoke appropriate functions
 main() {
     local help=false
-
-    #if [[ "$1" == "--help" ]]; then
-    #    showHelp
-    #    exit 0
-    #fi
+    local -a positional_args
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -78,18 +96,18 @@ main() {
                 debug=true;
                 shift
                 ;;
-            #--*|-*)
-            #    echo "Unknown option $1"
-            #    exit 1
-            #    ;;
+            -v|--version)
+                echo "SystemRescue Backup version v${systemrescue_version}"
+                exit 0
+                ;;
             *)
-                POSITIONAL_ARGS+=("$1") # save positional arg
+                positional_args+=("$1") # save positional arg
                 shift
                 ;;
         esac
     done
 
-    set -- "${POSITIONAL_ARGS[@]}" # restore positional args
+    set -- "${positional_args[@]}" # restore positional args
 
     if $help; then
         showHelp "$1"
@@ -97,10 +115,6 @@ main() {
     fi
 
     case "$1" in
-        version)
-            echo "SystemRescue Backup version v${systemrescue_version}"
-            exit 0
-            ;;
         backup)
             echo "SystemRescue Backup -- Backup Mode"
             ;;
@@ -111,8 +125,9 @@ main() {
             shift
             while [[ "$#" -gt 0 ]]; do
                 case "$1" in
-                    --sysrecue-cd-version=*)
+                    --cd-version=*)
                         systemrescue_cd_version="${1#*=}"
+                        echoreg -d "SystemRescueCD Version arg = $systemrescue_cd_version"
                         shift
                         ;;
                     *)
@@ -124,7 +139,7 @@ main() {
             done
 
             echo "SystemRescue Backup -- Recovery CD"
-            echo "opt: $*"
+            echoreg -d "opt: $*"
             if ! load_module recovery init; then
                 exit_fail 200 "FATAL: Failed to load recovery init module. ($?)"
             fi
