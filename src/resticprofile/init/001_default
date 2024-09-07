@@ -5,6 +5,8 @@ echoreg -d "Loaded resticprofile Recovery Module Initialization"
 # Setup Defaults according to what's been develeoped and tested
 restic_version="0.17.0"
 resticprofile_version="0.28.0"
+restic_url="https://github.com/restic/restic/releases/download/v{RESTIC_VERSION}/restic_{RESTIC_VERSION}_linux_amd64.bz2"
+resticprofile_url="https://github.com/creativeprojects/resticprofile/releases/download/v{RESTICPROFILE_VERSION}/resticprofile_{RESTICPROFILE_VERSION}_linux_amd64.tar.gz"
 resticprofile_config_dir="/etc/resticprofile"
 
 resticprofile_init_find_config() {

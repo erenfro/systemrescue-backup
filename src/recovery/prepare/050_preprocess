@@ -1,0 +1,5 @@
+#!/bin/bash
+
+if [[ -n "$systemrescue_cd_iso_url" ]]; then
+    systemrescue_cd_iso_url="${systemrescue_cd_iso_url//\{SYSRESCUECD_VERSION\}/$systemrescue_cd_version}"
+fi

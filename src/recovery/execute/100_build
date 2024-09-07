@@ -1,0 +1,7 @@
+#!/bin/bash
+
+"${systemrescue_data_dir}/systemrescue-customize" --auto --overwrite \
+    --source="${systemrescue_cache_dir}/systemrescue-${systemrescue_cd_version}-amd64.iso" \
+    --dest="${systemrescue_data_dir}/systemrescue-backup-${systemrescue_cd_version}-amd64.iso" \
+    --recipe-dir="${systemrescue_data_dir}/sysrescue" \
+    --work-dir="${systemrescue_temp_dir}/customize"

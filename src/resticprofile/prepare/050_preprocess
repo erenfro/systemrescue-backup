@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [[ -n "$restic_url" ]]; then
+    restic_url="${restic_url//\{RESTIC_VERSION\}/$restic_version}"
+fi
+
+if [[ -n "$resticprofile_url" ]]; then
+    resticprofile_url="${resticprofile_url//\{RESTICPROFILE_VERSION\}/$resticprofile_version}"
+fi

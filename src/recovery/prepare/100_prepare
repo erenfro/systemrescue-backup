@@ -1,21 +1,64 @@
 #!/bin/bash 
 
-mkdir -p "$systemrescue_data_dir" || return 1
-mkdir -p "$systemrescue_temp_dir" || return 1
-mkdir -p "$systemrescue_cache_dir" || return 1
+# Ensure initial required directories exist
+mkdir -p "$systemrescue_data_dir" || exit_fail 10 "FATAL: Failed to create systemrescue_data_dir"
+mkdir -p "$systemrescue_cache_dir" || exit_fail 10 "FATAL: Failed to create systemrescue_cache_dir"
+if [[ -d "$systemrescue_temp_dir" ]]; then
+    # Clean out Temporary Directory
+    rm -rf "$systemrescue_temp_dir" || exit_fail 10 "FATAL: Failed to clean systemrescue_temp_dir"
+fi
+mkdir -p "$systemrescue_temp_dir" || exit_fail 10 "FATAL: Failed to create systemrescue_temp_dir"
+trap_add "rm -rf \"$systemrescue_temp_dir\"" EXIT
 
-mkdir -p "${systemrescue_data_dir}/build/build_into_srm/var/backups/systemrescue-backup/backupdb" || return 1
-#mount --bind "${systemrescue_data_dir}/backupdb" "${systemrescue_data_dir}/build/build_into_srm/var/backups/systemrescue-backup/backupdb" || exit 1
-if ! mount --bind "${systemrescue_data_dir}/backupdb" "${systemrescue_data_dir}/build/build_into_srm/var/backups/systemrescue-backup/backupdb"; then
-    if ! cp -a "${systemrescue_data_dir}/backupdb/" "${systemrescue_data_dir}/build/build_into_srm/var/backups/systemrescue-backup/backupdb/"; then
-        exit_fail 205 "FATAL: Failed to copy backupdb files over to recovery image build"
-    fi
+# Download SystemRescueCD ISO and Customize script
+curl -C - -Lso \
+    "${systemrescue_cache_dir}/systemrescue-${systemrescue_cd_version}-amd64.iso" \
+    "$systemrescue_cd_iso_url"
+curl -C - -Lso \
+    "${systemrescue_data_dir}/systemrescue-customize" \
+    "$systemrescue_cd_customize_url"
+chmod 755 "${systemrescue_data_dir}/systemrescue-customize"
+mkdir "${systemrescue_temp_dir}/customize" || exit_fail 10 "FATAL: Failed to create customize directory in systemrescue_temp_dir"
+
+# Copy SysRescue Skeleton configuration over to Disc staging directory
+mkdir -p "${systemrescue_data_dir}/sysrescue" || exit_fail 10 "FATAL: Could not create sysrescue directory in systemrescue_data_dir"
+if ! cp -a "${configPath}/sysrescue/." "${systemrescue_data_dir}/sysrecue/"; then
+    exit_fail 205 "FATAL: Failed to copy sysrescue config files over to recovery image build"
+fi
+trap_add "rm -rf \"${systemrescue_data_dir}/sysrescue\"" EXIT
+
+# Copy SystemRescue-Backup Configuration to Disc staging directory
+mkdir -p "${systemrescue_data_dir}/sysrescue/build_into_srm/etc/systemrescue-backup" || exit_fail 10 "FATAL: Could not create sysrescue config directory in systemrescue_data_dir"
+if ! cp -a "${configPath}/." "${systemrescue_data_dir}/sysrescue/build_into_srm/etc/systemrescue-backup/"; then
+    exit_fail 205 "FATAL: Failed to copy SRB config files over to recovery image build"
 fi
 
-# mkdir -p "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile"
-# if ! mount --bind "${resticprofile_config_dir}" "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile"; then
-#     if ! cp -a "${resticprofile_config_dir}" "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile"; then
-#         exit_fail 205 "FATAL: Failed to copy resticprofile config files over to recovery image build"
-#     fi
-# fi
-#mount --bind "/etc/resticprofile" "${systemrescue_data_dir}/build/build_into_srm/etc/resticprofile" || return 1
+# Copy backupdb to Disc staging directory
+mkdir -p "${systemrescue_data_dir}/sysrescue/build_into_srm/var/backups/systemrescue-backup/backupdb" || exit_fail 10 "FATAL: Could not create backupdb directory in systemrescue_data_dir"
+if ! cp -a "${systemrescue_data_dir}/backupdb/." "${systemrescue_data_dir}/sysrescue/build_into_srm/var/backups/systemrescue-backup/backupdb/"; then
+    exit_fail 205 "FATAL: Failed to copy backupdb files over to recovery image build"
+fi
+
+# Copy SystemRescue-Backup to Disc staging directory
+mkdir -p "${systemrescue_data_dir}/sysrescue/build_into_srm/usr/lib/systemrescue-backup" || exit_fail 10 "FATAL: Could not create SystemRescueBackup Script directory in systemrescue_data_dir"
+if ! cp -a "${scriptPath}/." "${systemrescue_data_dir}/sysrescue/build_into_srm/usr/lib/systemrescue-backup/"; then
+    exit_fail 205 "FATAL: Failed to copy SystemRescue-Backup Scripts over to recovery image build"
+fi
+mkdir -p "${systemrescue_data_dir}/sysrescue/build_into_srm/usr/local/bin" || exit_fail 10 "FATAL: Could not create usr/local/bin directory in systemrescue_data_dir"
+if ! ln -srf "${systemrescue_data_dir}/sysrescue/build_into_srm/usr/lib/systemrescue-backup/srb" "${systemrescue_data_dir}/sysrescue/build_into_srm/usr/local/bin/srb"; then
+    exit_fail 205 "FATAL: Failed to create srb symlink in usr/local/bin in recovery image build directory"
+fi
+
+# Setup SquashFS-Pseudo Permissions on files & directories.
+init_squashfs
+add_to_squashfs "/etc m 755 root root"
+add_to_squashfs "/var m 755 root root"
+add_to_squashfs "/usr m 755 root root"
+add_to_squashfs "/usr/lib m 755 root root"
+add_to_squashfs "/usr/local m 755 root root"
+add_to_squashfs "/usr/local/bin m 755 root root"
+
+add_path_to_squashfs "${systemrescue_data_dir}/sysrescue/build_into_srm/etc/systemrescue-backup" 700 600
+add_path_to_squashfs "${systemrescue_data_dir}/sysrescue/build_into_srm/var/backups" 700 600
+add_path_to_squashfs "${systemrescue_data_dir}/sysrescue/build_into_srm/root" 700 600
+add_path_to_squashfs "${systemrescue_data_dir}/sysrescue/build_into_srm/usr/lib/systemrescue-backup" match match
