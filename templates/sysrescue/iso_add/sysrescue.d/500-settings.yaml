@@ -1,0 +1,14 @@
+global:
+    copytoram: true
+    checksum: true
+    loadsrm: true
+    dostartx: true
+    setkmap: us
+
+autorun:
+    ar_disable: false
+    ar_nowait: false
+    ar_nodel: false
+    ar_attempts: 3
+    ar_ignorefail: false
+    ar_suffixes: 1,2,3

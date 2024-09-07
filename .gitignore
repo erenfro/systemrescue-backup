@@ -10,4 +10,5 @@ profiles.toml
 key
 excludes
 !templates/*
-
+tmp/*
+old/*
